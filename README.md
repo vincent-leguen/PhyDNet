@@ -1,4 +1,4 @@
-# PhyDNet
+# PhyDNet - Disentangling Physical Dynamics from Unknown Factors for Unsupervised Video Prediction
 [Vincent Le Guen](https://www.linkedin.com/in/vincentleguen/),  [Nicolas Thome](http://cedric.cnam.fr/~thomen/)
 
 Code for our CVPR 2020 paper "Disentangling Physical Dynamics from Unknown Factors for Unsupervised Video Prediction"
