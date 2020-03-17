@@ -10,3 +10,14 @@ Leveraging physical knowledge described by partial differential equations (PDEs)
 
 
 Code coming soon...
+
+If you find this code useful for your research, please cite our [paper](https://papers.nips.cc/paper/8672-shape-and-time-distortion-loss-for-training-deep-time-series-forecasting-models):
+
+```
+@incollection{leguen20phydnet,
+title = {Disentangling Physical Dynamics from Unknown Factors for Unsupervised Video Prediction},
+author = {Le Guen, Vincent and Thome, Nicolas},
+booktitle = {Computer Vision and Pattern Recognition (CVPR)},
+year = {2020}
+}
+```
