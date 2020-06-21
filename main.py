@@ -23,9 +23,9 @@ parser.add_argument('--eval_every', type=int, default=5, help='')
 args = parser.parse_args()
 
 mm = MovingMNIST(root=args.root, is_train=True, n_frames_input=10, n_frames_output=10, num_objects=[2])
-mm = MovingMNIST(root=args.root, is_train=False, n_frames_input=10, n_frames_output=10, num_objects=[2])
-
 train_loader = torch.utils.data.DataLoader(dataset=mm, batch_size=args.batch_size, shuffle=True, num_workers=0)
+
+mm = MovingMNIST(root=args.root, is_train=False, n_frames_input=10, n_frames_output=10, num_objects=[2])
 test_loader  = torch.utils.data.DataLoader(dataset=mm, batch_size=1, shuffle=False, num_workers=0)
 
 constraints = torch.zeros((49,7,7)).to(device)
