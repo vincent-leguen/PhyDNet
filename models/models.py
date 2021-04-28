@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
 
 class PhyCell_Cell(nn.Module):
     def __init__(self, input_dim, F_hidden_dim, kernel_size, bias=1):
@@ -13,9 +11,8 @@ class PhyCell_Cell(nn.Module):
         self.bias = bias
         
         self.F = nn.Sequential()
-        self.F.add_module('bn1',nn.GroupNorm( 4 ,input_dim))          
-        self.F.add_module('conv1', nn.Conv2d(in_channels=input_dim, out_channels=F_hidden_dim, kernel_size=self.kernel_size, stride=(1,1), padding=self.padding))  
-        #self.F.add_module('f_act1', nn.LeakyReLU(negative_slope=0.1))        
+        self.F.add_module('conv1', nn.Conv2d(in_channels=input_dim, out_channels=F_hidden_dim, kernel_size=self.kernel_size, stride=(1,1), padding=self.padding))
+        self.F.add_module('bn1',nn.GroupNorm( 7 ,F_hidden_dim))        
         self.F.add_module('conv2', nn.Conv2d(in_channels=F_hidden_dim, out_channels=input_dim, kernel_size=(1,1), stride=(1,1), padding=(0,0)))
 
         self.convgate = nn.Conv2d(in_channels=self.input_dim + self.input_dim,
@@ -24,16 +21,13 @@ class PhyCell_Cell(nn.Module):
                               padding=(1,1), bias=self.bias)
 
     def forward(self, x, hidden): # x [batch_size, hidden_dim, height, width]      
-        hidden_tilde = hidden + self.F(hidden)        # prediction
-        
-        combined = torch.cat([x, hidden_tilde], dim=1)  # concatenate along channel axis
+        combined = torch.cat([x, hidden], dim=1)  # concatenate along channel axis
         combined_conv = self.convgate(combined)
         K = torch.sigmoid(combined_conv)
-        
+        hidden_tilde = hidden + self.F(hidden)        # prediction
         next_hidden = hidden_tilde + K * (x-hidden_tilde)   # correction , Haddamard product     
         return next_hidden
 
-   
 class PhyCell(nn.Module):
     def __init__(self, input_shape, input_dim, F_hidden_dims, n_layers, kernel_size, device):
         super(PhyCell, self).__init__()
@@ -47,8 +41,6 @@ class PhyCell(nn.Module):
              
         cell_list = []
         for i in range(0, self.n_layers):
-        #    cur_input_dim = self.input_dim if i == 0 else self.hidden_dims[i-1]
-
             cell_list.append(PhyCell_Cell(input_dim=input_dim,
                                           F_hidden_dim=self.F_hidden_dims[i],
                                           kernel_size=self.kernel_size))                                     
@@ -75,8 +67,8 @@ class PhyCell(nn.Module):
 
     def setHidden(self, H):
         self.H = H
-  
-   
+
+        
 class ConvLSTM_Cell(nn.Module):
     def __init__(self, input_shape, input_dim, hidden_dim, kernel_size, bias=1):              
         """
@@ -122,8 +114,6 @@ class ConvLSTM_Cell(nn.Module):
         return h_next, c_next
 
 
-    
-    
 class ConvLSTM(nn.Module):
     def __init__(self, input_shape, input_dim, hidden_dims, n_layers, kernel_size,device):
         super(ConvLSTM, self).__init__()
@@ -175,14 +165,13 @@ class dcgan_conv(nn.Module):
         super(dcgan_conv, self).__init__()
         self.main = nn.Sequential(
                 nn.Conv2d(in_channels=nin, out_channels=nout, kernel_size=(3,3), stride=stride, padding=1),
-                nn.GroupNorm(4,nout),
+                nn.GroupNorm(16,nout),
                 nn.LeakyReLU(0.2, inplace=True),
                 )
 
     def forward(self, input):
         return self.main(input)
 
-        
 class dcgan_upconv(nn.Module):
     def __init__(self, nin, nout, stride):
         super(dcgan_upconv, self).__init__()
@@ -192,83 +181,101 @@ class dcgan_upconv(nn.Module):
             output_padding = 0
         self.main = nn.Sequential(
                 nn.ConvTranspose2d(in_channels=nin,out_channels=nout,kernel_size=(3,3), stride=stride,padding=1,output_padding=output_padding),
-                nn.GroupNorm(4,nout),
+                nn.GroupNorm(16,nout),
                 nn.LeakyReLU(0.2, inplace=True),
                 )
 
     def forward(self, input):
         return self.main(input)
-     
-
-class image_encoder(nn.Module):
-    def __init__(self, nc=1):
-        super(image_encoder, self).__init__()
-        nf = 16
-        # input is (nc) x 64 x 64
-        self.c1 = dcgan_conv(nc, int(nf/2), stride=1) # (nf) x 64 x 64
-        self.c2 = dcgan_conv(int(nf/2), nf, stride=1) # (nf) x 64 x 64
-        self.c3 = dcgan_conv(nf, nf*2, stride=2) # (2*nf) x 32 x 32
-        self.c4 = dcgan_conv(nf*2, nf*2, stride=1) # (2*nf) x 32 x 32
-        self.c5 = dcgan_conv(nf*2, nf*4, stride=2) # (4*nf) x 16 x 16
-        self.c6 = dcgan_conv(nf*4, nf*4, stride=1) # (4*nf) x 16 x 16          
-
-    def forward(self, input):
-        h1 = self.c1(input)  # (nf/2) x 64 x 64
-        h2 = self.c2(h1)     # (nf) x 64 x 64
-        h3 = self.c3(h2)     # (2*nf) x 32 x 32
-        h4 = self.c4(h3)     # (2*nf) x 32 x 32
-        h5 = self.c5(h4)     # (4*nf) x 16 x 16
-        h6 = self.c6(h5)     # (4*nf) x 16 x 16          
-        return h6, [h1, h2, h3, h4, h5, h6]
-
-
-class image_decoder(nn.Module):
-    def __init__(self, nc=1):
-        super(image_decoder, self).__init__()
-        nf = 16
-        self.upc1 = dcgan_upconv(nf*4*2, nf*4, stride=1) #(nf*4) x 16 x 16
-        self.upc2 = dcgan_upconv(nf*4*2, nf*2, stride=2) #(nf*2) x 32 x 32
-        self.upc3 = dcgan_upconv(nf*2*2, nf*2, stride=1) #(nf*2) x 32 x 32
-        self.upc4 = dcgan_upconv(nf*2*2, nf, stride=2)   #(nf) x 64 x 64
-        self.upc5 = dcgan_upconv(nf*2, int(nf/2), stride=1)   #(nf/2) x 64 x 64
-        self.upc6 = nn.ConvTranspose2d(in_channels=nf,out_channels=nc,kernel_size=(3,3),stride=1,padding=1)  #(nc) x 64 x 64
-
-    def forward(self, input):
-        vec, skip = input    # vec: (4*nf) x 16 x 16          
-        [h1, h2, h3, h4, h5, h6] = skip
-        d1 = self.upc1(torch.cat([vec, h6], dim=1))  #(nf*4) x 16 x 16
-        d2 = self.upc2(torch.cat([d1, h5], dim=1))   #(nf*2) x 32 x 32
-        d3 = self.upc3(torch.cat([d2, h4], dim=1))   #(nf*2) x 32 x 32
-        d4 = self.upc4(torch.cat([d3, h3], dim=1))   #(nf) x 64 x 64
-        d5 = self.upc5(torch.cat([d4, h2], dim=1))   #(nf/2) x 64 x 64
-        d6 = self.upc6(torch.cat([d5, h1], dim=1))   #(nc) x 64 x 64
-        return d6
         
+class encoder_E(nn.Module):
+    def __init__(self, nc=1, nf=32):
+        super(encoder_E, self).__init__()
+        # input is (1) x 64 x 64
+        self.c1 = dcgan_conv(nc, nf, stride=2) # (32) x 32 x 32
+        self.c2 = dcgan_conv(nf, nf, stride=1) # (32) x 32 x 32
+        self.c3 = dcgan_conv(nf, 2*nf, stride=2) # (64) x 16 x 16
 
+    def forward(self, input):
+        h1 = self.c1(input)  
+        h2 = self.c2(h1)    
+        h3 = self.c3(h2)
+        return h3
+
+class decoder_D(nn.Module):
+    def __init__(self, nc=1, nf=32):
+        super(decoder_D, self).__init__()
+        self.upc1 = dcgan_upconv(2*nf, nf, stride=2) #(32) x 32 x 32
+        self.upc2 = dcgan_upconv(nf, nf, stride=1) #(32) x 32 x 32
+        self.upc3 = nn.ConvTranspose2d(in_channels=nf,out_channels=nc,kernel_size=(3,3),stride=2,padding=1,output_padding=1)  #(nc) x 64 x 64
+
+    def forward(self, input):      
+        d1 = self.upc1(input) 
+        d2 = self.upc2(d1)
+        d3 = self.upc3(d2)  
+        return d3  
+
+
+class encoder_specific(nn.Module):
+    def __init__(self, nc=64, nf=64):
+        super(encoder_specific, self).__init__()
+        self.c1 = dcgan_conv(nc, nf, stride=1) # (64) x 16 x 16
+        self.c2 = dcgan_conv(nf, nf, stride=1) # (64) x 16 x 16
+
+    def forward(self, input):
+        h1 = self.c1(input)  
+        h2 = self.c2(h1)     
+        return h2
+
+class decoder_specific(nn.Module):
+    def __init__(self, nc=64, nf=64):
+        super(decoder_specific, self).__init__()
+        self.upc1 = dcgan_upconv(nf, nf, stride=1) #(64) x 16 x 16
+        self.upc2 = dcgan_upconv(nf, nc, stride=1) #(32) x 32 x 32
+        
+    def forward(self, input):
+        d1 = self.upc1(input) 
+        d2 = self.upc2(d1)  
+        return d2       
+
+        
 class EncoderRNN(torch.nn.Module):
-    def __init__(self,phycell,convlstm, device):
+    def __init__(self,phycell,convcell, device):
         super(EncoderRNN, self).__init__()
-        self.image_cnn_enc = image_encoder().to(device) # image encoder 64x64x1 -> 16x16x64
-        self.image_cnn_dec = image_decoder().to(device) # image decoder 16x16x64 -> 64x64x1 
-        
+        self.encoder_E = encoder_E()   # general encoder 64x64x1 -> 32x32x32
+        self.encoder_Ep = encoder_specific() # specific image encoder 32x32x32 -> 16x16x64
+        self.encoder_Er = encoder_specific() 
+        self.decoder_Dp = decoder_specific() # specific image decoder 16x16x64 -> 32x32x32 
+        self.decoder_Dr = decoder_specific()     
+        self.decoder_D = decoder_D()  # general decoder 32x32x32 -> 64x64x1 
+
+        self.encoder_E = self.encoder_E.to(device)
+        self.encoder_Ep = self.encoder_Ep.to(device) 
+        self.encoder_Er = self.encoder_Er.to(device) 
+        self.decoder_Dp = self.decoder_Dp.to(device) 
+        self.decoder_Dr = self.decoder_Dr.to(device)               
+        self.decoder_D = self.decoder_D.to(device)
         self.phycell = phycell.to(device)
-        self.convlstm = convlstm.to(device)
+        self.convcell = convcell.to(device)
 
-        
     def forward(self, input, first_timestep=False, decoding=False):
+        input = self.encoder_E(input) # general encoder 64x64x1 -> 32x32x32
+    
         if decoding:  # input=None in decoding phase
-            output_phys = None
+            input_phys = None
         else:
-            output_phys,skip = self.image_cnn_enc(input)
-        output_conv,skip = self.image_cnn_enc(input)     
+            input_phys = self.encoder_Ep(input)
+        input_conv = self.encoder_Er(input)     
 
-        hidden1, output1 = self.phycell(output_phys, first_timestep)
-        hidden2, output2 = self.convlstm(output_conv, first_timestep)
+        hidden1, output1 = self.phycell(input_phys, first_timestep)
+        hidden2, output2 = self.convcell(input_conv, first_timestep)
 
-        out_phys = torch.sigmoid(self.image_cnn_dec([output1[-1],skip])) # partial reconstructions for vizualization
-        out_conv = torch.sigmoid(self.image_cnn_dec([output2[-1],skip]))
+        decoded_Dp = self.decoder_Dp(output1[-1])
+        decoded_Dr = self.decoder_Dr(output2[-1])
+        
+        out_phys = torch.sigmoid(self.decoder_D(decoded_Dp)) # partial reconstructions for vizualization
+        out_conv = torch.sigmoid(self.decoder_D(decoded_Dr))
 
-        concat = output1[-1]+output2[-1]
-        output_image = torch.sigmoid( self.image_cnn_dec([concat,skip]) )
-        return out_phys, hidden1, output_image, out_phys, out_conv
-
+        concat = decoded_Dp + decoded_Dr   
+        output_image = torch.sigmoid( self.decoder_D(concat ))
+        return out_phys, hidden1, output_image, out_phys, out_conv        
